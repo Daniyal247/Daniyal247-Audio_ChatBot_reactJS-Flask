@@ -1,8 +1,8 @@
 import { useState, useRef } from 'react';
-import { useEffect } from 'react';
+import axios from 'axios';
 import { useReactMediaRecorder } from "react-media-recorder";
 import './App.css';
-import GifPlayer from './GifPlayer';
+import GifPlayer from './GifPlayer.js';
 
 export default function App() {
   const {
@@ -13,67 +13,100 @@ export default function App() {
   } = useReactMediaRecorder({ audio: true });
 
   const [isRecording, setIsRecording] = useState(false);
-  const [showGif, setShowGif] = useState(false);
-  const [replyAudioUrl, setReplyAudioUrl] = useState('');
-  const gifPAth = 'images/recording.gif';
+  const [audioResponse, setAudioResponse] = useState('');
+  const gifPath = 'images/aud.gif';
   const audioRef = useRef();
 
+
+  // Declare speechHandler and msg variables
+  const speechHandler = (msg) => {
+    msg.text = audioResponse ? audioResponse : "Response is not received, Sorry";
+    window.speechSynthesis.speak(msg);
+  };
+
+  const msg = new SpeechSynthesisUtterance();
+
+
   const playAudio = () => {
-    console.log('playAudio called')
-    if (replyAudioUrl) {
-      audioRef.current.src = replyAudioUrl;
+    if (audioResponse) {
+      audioRef.current.src = audioResponse;
       audioRef.current.load();
       audioRef.current.play();
     }
   };
 
-  const toggleRecording = () => {
-    if (isRecording) {
+  const toggleRecording = async () => {
+    if (isRecording && status === "recording") {
       // Stop recording and send to the backend
       stopRecording();
-      sendAudioToBackend();
+      const response = await fetch(mediaBlobUrl);
+      const audioData = await response.blob();
+      // await new Promise((resolve) => {
+      //   setTimeout(() => {
+      //     resolve();
+      //   }, 1000); // Adjust the timeout as needed
+      // });
+      if (status === "stopped" && mediaBlobUrl) {
+        await testAsyncCode()
+        sendAudioToBackend();
+        playAudio();
+      }
     } else {
       // Start recording
       startRecording();
-      setShowGif(true);
     }
     setIsRecording((prevIsRecording) => !prevIsRecording);
   };
 
-  const sendAudioToBackend = async () => {
-    const response = await fetch(mediaBlobUrl);
-    const audioData = await response.blob();
-    // Send audioData to the backend
-    let formData = new FormData();
-    formData.append('file', audioData, 'recorded_audio.mp3');
+  async function testAsyncCode() {
+    console.log('Start');
+    await new Promise((resolve) => {
+      setTimeout(() => {
+        resolve();
+      }, 2000); // Adjust the timeout as needed
+    });
+    console.log('End');
+  }
 
-    fetch('http://localhost:5000/upload_audio', {
-      method: 'POST',
-      body: formData,
-      mode: 'no-cors',
-      credentials: 'include'
-    })
-    .then(response => response.blob())
-    .then(data => {
-      const audioUrl = URL.createObjectURL(data);
-      setReplyAudioUrl(audioUrl);
-      console.log(replyAudioUrl)
-      playAudio();
-    })
-    .catch(error => console.error(error));
-    setIsRecording(false);
+  const sendAudioToBackend = async () => {
+    try {
+      if (!mediaBlobUrl) {
+        console.error('mediaBlobUrl is undefined');
+        return;
+      }
+      const response = await fetch(mediaBlobUrl);
+      const audioData = await response.blob();
+
+      // Send audioData to the backend
+      const formData = new FormData();
+      formData.append('file', audioData);
+  
+      axios.post('http://127.0.0.1:5000/upload_audio/allow-cors', formData, { timeout: 5000 })
+        .then((res) => {
+          console.log("Response from backend:", res.data.data);
+          setAudioResponse(res.data.data);
+        })
+        .then(() => {
+          speechHandler(msg);
+          console.log("Speech");
+          setIsRecording(false);
+        })
+        .catch((error) => {
+          console.error("Error in axios post:", error);
+        });
+    } catch (error) {
+      console.error("Error in try-catch:", error);
+    }
   };
 
   return (
     <div className="container">
       <h1>Audio CHATBOT</h1>
-      <audio src={mediaBlobUrl} controls/>
-      <audio ref={audioRef} controls /> {/* Audio element to play the reply */}
+      {audioResponse && <audio ref={audioRef} controls />}
       <div>
         <p>{status}</p>
         <div>
-          {/* Display the GIF continuously while recording is active */}
-          {GifPlayer && <img src={gifPAth} />}
+          {GifPlayer && <img src={gifPath} alt="GIF" />}
         </div>
         <button onClick={toggleRecording}>
           {isRecording ? 'Stop and Send' : 'Start Recording'}
